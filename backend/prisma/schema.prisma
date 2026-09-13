@@ -1,0 +1,114 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum OrgType {
+  KITCHEN
+  FOOD_PROCESSOR
+  NGO
+  LOGISTICS
+}
+
+enum StorageCondition {
+  ROOM_TEMP
+  CHILLED
+  HOT
+}
+
+enum ListingStatus {
+  AVAILABLE
+  RESERVED
+  CLAIMED
+  EXPIRED
+}
+
+enum ClaimStatus {
+  PENDING
+  ACCEPTED
+  EN_ROUTE
+  DELIVERED
+  CANCELLED
+}
+
+model Organization {
+  id           String    @id @default(uuid())
+  name         String
+  type         OrgType
+  latitude     Float
+  longitude    Float
+  address      String
+  contactPhone String
+  email        String    @unique
+  passwordHash String
+  capacityKg   Float     @default(100.0) // Daily handling capacity for urgency matching score
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  listings   SurplusListing[] @relation("DonorListings")
+  claims     ClaimRequest[]   @relation("RecipientClaims")
+  wasteLogs  WasteLog[]       @relation("KitchenWasteLogs")
+
+  @@index([type])
+  @@index([latitude, longitude])
+}
+
+model SurplusListing {
+  id               String           @id @default(uuid())
+  donorId          String
+  donor            Organization     @relation("DonorListings", fields: [donorId], references: [id], onDelete: Cascade)
+  title            String
+  foodCategory     String           // cooked grains, dairy, meat/gravy, produce, baked, etc.
+  quantityKg       Float
+  preparedAt       DateTime
+  safeUntil        DateTime
+  storageCondition StorageCondition @default(ROOM_TEMP)
+  status           ListingStatus    @default(AVAILABLE)
+  notes            String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  claims ClaimRequest[]
+
+  @@index([donorId])
+  @@index([status])
+  @@index([safeUntil])
+}
+
+model ClaimRequest {
+  id          String         @id @default(uuid())
+  listingId   String
+  listing     SurplusListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   Organization   @relation("RecipientClaims", fields: [recipientId], references: [id], onDelete: Cascade)
+  status      ClaimStatus    @default(PENDING)
+  pickupOtp   String         // 6 digit OTP for verification
+  qrCodeToken String         @unique // Secure verification token
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([listingId])
+  @@index([recipientId])
+  @@index([status])
+}
+
+model WasteLog {
+  id                String       @id @default(uuid())
+  kitchenId         String
+  kitchen           Organization @relation("KitchenWasteLogs", fields: [kitchenId], references: [id], onDelete: Cascade)
+  date              DateTime     @default(now())
+  plannedKg         Float
+  actualConsumedKg  Float
+  discardedKg       Float
+  discardReason     String?      // spoilage, overproduction, expiry, temperature abuse
+  mealType          String?      // breakfast, lunch, dinner
+  attendanceCount   Int?
+  createdAt         DateTime     @default(now())
+
+  @@index([kitchenId])
+  @@index([date])
+}
